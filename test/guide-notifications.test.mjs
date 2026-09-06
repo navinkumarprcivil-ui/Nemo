@@ -77,8 +77,8 @@ for (const file of ['app.jsx']) {
     /* This was the whole bug. The preference was stored in localStorage and read by exactly one
        guard — sendLocalNotif's channel==="guides" — which no caller ever triggered. The switch
        moved, saved, and did nothing, in every browser and in the app. */
-    assert.match(block, /const apply=\(v\)=>\{ setOn\(v\); setGuideNotifPref\(v\); syncGuideSub\(v\); \};/);
-    assert.match(src, /function syncGuideSub\(on\)\{/);
+    assert.match(block, /const apply=\(v\)=>\{ setOn\(v\); setGuideNotifPref\(v\); syncGuideSub\(v,why=>/);
+    assert.match(src, /function syncGuideSub\(on,done\)\{/);
     assert.match(src, /FB_DB\.ref\("guideSubs\/"\+uid\)/);
     // Opting out leaves no row, rather than a row saying no.
     assert.match(src, /if\(!on\)\{ try\{ ref\.remove\(\)/);
@@ -88,8 +88,21 @@ for (const file of ['app.jsx']) {
     // guideSubs is keyed on the account. Without this the switch reads ON while the server has
     // never heard of the customer.
     assert.match(block, /window\.addEventListener\("nemo-fb-ready",push\)/);
-    assert.match(block, /const push=\(\)=>\{ if\(guideNotifOn\(\)\) syncGuideSub\(true\); \};/);
+    assert.match(block, /const push=\(\)=>\{ if\(guideNotifOn\(\)\) syncGuideSub\(true,why=>/);
     assert.match(block, /const SIGNED_OUT="Saved\. Sign in to get these\.";/);
+  });
+
+  test(file + ': a refused subscription is shown, not only logged', () => {
+    /* The one failure that produces pure silence. guideSubs needs a rule published by hand in
+       the Firebase Console; without it the root ".write": false denies the write, the switch
+       still reads ON and still says "Saved", and nothing ever arrives. A console warning is
+       not a signal on a phone. */
+    assert.match(src, /const fail=\(e\)=>\{ console\.warn\("nemo-push: guideSubs write rejected"/);
+    assert.match(src, /ref\.set\(\{at:Date\.now\(\)\}\)\.then\(\(\)=>say\(""\),fail\);/);
+    assert.match(block, /const NOT_SUBSCRIBED="Saved\. Couldn't subscribe you on the server\.";/);
+    // Both routes to the server report it: the tap, and the re-file once auth resolves.
+    const uses = block.match(/why==="rejected"&&guideNotifOn\(\)\) setNote\(NOT_SUBSCRIBED\)/g) || [];
+    assert.equal(uses.length, 2, 'the tap and the sign-in re-file must both surface a refusal');
   });
 
   test(file + ': the installed app is not asked about a permission it does not use', () => {

@@ -1577,15 +1577,25 @@ function syncCareReminder(tank){
    Keyed on the account rather than the device, so turning it on signed out records the
    preference and nothing else — there is nobody to deliver to yet. It is written again on
    nemo-fb-ready, which is when a sign-in finally gives it an owner. */
-function syncGuideSub(on){
-  if(!FB_OK||!FB_DB||!FB_AUTH) return;
+/* Reports the outcome rather than swallowing it. The subscription is the only half of this
+   feature the customer cannot see: the switch moves, the preference is stored locally, and
+   whether the server actually heard about it is invisible. When guideSubs has no rule the root
+   ".write": false denies the write, and a console warning nobody reads was the entire signal —
+   which is how this stayed broken through a full release. `done` is called with "" when the
+   server has the subscription and with a reason when it has not, so the switch can say so. */
+function syncGuideSub(on,done){
+  const say=(why)=>{ if(done) done(why); };
+  if(!FB_OK||!FB_DB||!FB_AUTH) return say("offline");
   let uid="";
   try{ uid=(FB_AUTH.currentUser&&FB_AUTH.currentUser.uid)||""; }catch(e){}
-  if(!uid) return;
+  if(!uid) return say("signedout");
   let ref;
-  try{ ref=FB_DB.ref("guideSubs/"+uid); }catch(e){ return; }
-  if(!on){ try{ ref.remove().catch(()=>{}); }catch(e){} return; }
-  try{ ref.set({at:Date.now()}).catch(e=>console.warn("nemo-push: guideSubs write rejected",e&&e.message)); }catch(e){}
+  try{ ref=FB_DB.ref("guideSubs/"+uid); }catch(e){ return say("offline"); }
+  /* Opting out is not worth reporting on: the local preference is already off, and a failed
+     remove leaves a row that only costs one wasted send. */
+  if(!on){ try{ ref.remove().catch(()=>{}); }catch(e){} return say(""); }
+  const fail=(e)=>{ console.warn("nemo-push: guideSubs write rejected",e&&e.message); say("rejected"); };
+  try{ ref.set({at:Date.now()}).then(()=>say(""),fail); }catch(e){ fail(e); }
 }
 
 /* Queued when the admin marks an order Shipped; the Worker sends on its next tick.
@@ -6536,14 +6546,20 @@ function GuideNotifBtn(){
   const active = on;
   /* The preference is local so it survives being signed out; the subscription is the server's
      copy of it, and only that can actually reach a phone. Both move together. */
-  const apply=(v)=>{ setOn(v); setGuideNotifPref(v); syncGuideSub(v); };
+  /* A rejected subscription is reported over whatever the local outcome said. "Saved" is true
+     of the preference and useless on its own — the customer wants the notification, not the
+     preference, and the server not having the subscription is the one failure that produces
+     silence with nothing on screen to explain it. Re-read the stored preference inside the
+     callback rather than trusting `v`: a fast on-then-off must not land a warning on a switch
+     that is now off. */
+  const apply=(v)=>{ setOn(v); setGuideNotifPref(v); syncGuideSub(v,why=>{ if(why==="rejected"&&guideNotifOn()) setNote(NOT_SUBSCRIBED); }); };
   const signedIn=()=>{ try{ return !!(FB_AUTH&&FB_AUTH.currentUser); }catch(e){ return false; } };
 
   /* A preference set before signing in has no owner to file it under. Firebase resolving auth
      is the moment it gets one, so re-file it then — otherwise switching this on and signing in
      afterwards leaves a switch that reads ON and a server that has never heard of you. */
   useEffect(()=>{
-    const push=()=>{ if(guideNotifOn()) syncGuideSub(true); };
+    const push=()=>{ if(guideNotifOn()) syncGuideSub(true,why=>{ if(why==="rejected"&&guideNotifOn()) setNote(NOT_SUBSCRIBED); }); };
     push();
     window.addEventListener("nemo-fb-ready",push);
     return()=>window.removeEventListener("nemo-fb-ready",push);
@@ -6579,6 +6595,10 @@ function GuideNotifBtn(){
     ? "Saved. Update the app to get these."
     : "Saved. This browser can't show notifications.";
   const SIGNED_OUT="Saved. Sign in to get these.";
+  /* The server refused the subscription — in practice a missing guideSubs rule. Worded for a
+     customer, but it is the owner this is really for: it is the only way to tell a published
+     rule from an unpublished one without a console. */
+  const NOT_SUBSCRIBED="Saved. Couldn't subscribe you on the server.";
   const noteFor=(p)=> p==="granted"?"" : p==="denied"?BLOCKED : p==="unsupported"?UNSUPPORTED
     : "Saved. Allow it when your browser asks.";
   const toggle=()=>{
@@ -7972,7 +7992,7 @@ function ProductCard({product:p,imgSrc,onPress,onAdd,inCart=0,isFav=false,onFav,
    orders and favourites are deliberately left alone; only cached copies of data
    that lives on the server are removed, and those come straight back on boot. */
 /* Written by scripts/build.mjs into version.json and sw.js — bump it here only. */
-const APP_BUILD = "v90.9b1fb726";
+const APP_BUILD = "v90.7b5a53d6";
 async function forceRefresh(){
   /* The cached copies of products, guides and settings are deliberately NOT deleted here.
      They used to be, on the reasoning that "those come straight back on boot" — which is true

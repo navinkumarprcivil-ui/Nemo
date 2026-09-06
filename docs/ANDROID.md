@@ -75,8 +75,8 @@ than not offering it, because it happens mid-payment.
 
 ## Where the app actually is on Play
 
-**Production has never been active.** Both released version codes sit on the *closed
-testing* track only, so no ordinary Play user has ever installed this app — every customer
+**Production has never been active.** The two version codes that were actually released, 11
+and 12, sit on the *closed testing* track only, so no ordinary Play user has ever installed this app — every customer
 ordering today came through the website. Production is gated behind Google's closed-testing
 requirement for personal developer accounts: at least 12 testers opted in continuously for
 14 days, then an application.
@@ -85,7 +85,16 @@ requirement for personal developer accounts: at least 12 testers opted in contin
 |---|---|---|---|---|
 | 11 | `2.0.0` | Aug 2026 | Closed testing | no |
 | 12 | `2.0.1` | Sep 2026 | Closed testing | yes — **verified at checkout on a Play-signed install** |
-| 13 | `2.0.2` | Sep 2026 | Closed testing | yes, plus push notifications and the sign-in retry |
+| 13 | `2.0.2` | built Sep 2026 | **not uploaded** — the `.aab` is still on the Mac | yes, plus push notifications and the sign-in retry |
+
+**Until version code 13 is installed, no notification of any kind can arrive.** Every sender
+in `api/cron-push.js` — shipped, delivered, back in stock, weekly tank care, new care guide —
+ends at `notifyUser()`, which reads `pushTokens/<uid>` and does nothing when it is empty. That
+node is written only by `savePushToken()` in `app.jsx`, which runs only when the wrapper calls
+`window.__nemoPushToken`, and only version code 13 calls it. The site has no web-push
+subscription either — there is no `pushManager.subscribe` anywhere — so a browser is not a way
+round it. A toggle switched on against a store running version 12 is a preference recorded and
+nothing more, which is exactly what it looks like from the outside: silence.
 
 That gap is the thing to notice: the two fixes below sat in the local working copy for a
 release without ever being built into a bundle, because the version code was never bumped
