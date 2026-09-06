@@ -196,8 +196,10 @@ sends through FCM like every other notification.
 **That means another manual Console publish.** `database.rules.json` gained a `guideSubs` node;
 until it is pasted into the Firebase Console and published, the root `".write": false` denies
 the subscription write and the switch is dead again — with the same silent failure mode that
-cost an hour last time. The write's `.catch` now logs `nemo-push: guideSubs write rejected`
-rather than swallowing it, so Logcat says so.
+cost an hour last time. **The switch now says so on screen** — a refused write shows
+"Saved. Couldn't subscribe you on the server." under the bell, and the write also logs
+`nemo-push: guideSubs write rejected`. So the state of the rule can be read off the phone: turn
+the bell on in Care Guides, and that note appearing means the rule is not published.
 
 Two lessons worth keeping. A silent catch on a write is expensive every single time it fires;
 that one is worth replacing with a `console.warn`. And when a chain has five links and no
