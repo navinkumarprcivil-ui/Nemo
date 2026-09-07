@@ -298,7 +298,7 @@
       "$id": {
         ".write": "auth != null && ( ((auth.uid === 'cI2HmMt6FdR7fO7uUnugH85GeZt2' || (auth.uid === root.child('adminAccess/coAdminUid').val() && root.child('adminAccess/permissions/reviews').val() === true))) || (!data.exists() && newData.child('id').val() === $id && newData.child('userUid').val() === auth.uid && newData.child('approved').val() === false && !newData.child('approvedAt').exists() && !newData.child('expiresAt').exists() && newData.child('pendingExpiresAt').isNumber() && newData.child('pendingExpiresAt').val() > now && newData.child('pendingExpiresAt').val() <= now + 90000000) || (data.exists() && auth.uid === data.child('userUid').val() && data.child('approved').val() === false && (!newData.exists() || (newData.child('id').val() === $id && newData.child('userUid').val() === auth.uid && newData.child('approved').val() === false && !newData.child('approvedAt').exists() && !newData.child('expiresAt').exists() && newData.child('pendingExpiresAt').isNumber() && newData.child('pendingExpiresAt').val() > now && newData.child('pendingExpiresAt').val() <= now + 90000000))) || (data.child('expiresAt').isNumber() && data.child('expiresAt').val() < now && !newData.exists()) || (data.child('approved').val() === false && data.child('pendingExpiresAt').isNumber() && data.child('pendingExpiresAt').val() < now && !newData.exists()) )",
         "imgData": {
-          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 700000)"
+          ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 260000)"
         },
         "caption": {
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 200)"
@@ -307,9 +307,9 @@
           ".validate": "!newData.exists() || (newData.isString() && newData.val().length <= 80)"
         },
         "imgs": {
-          ".validate": "!newData.exists() || newData.hasChildren()",
+          ".validate": "!newData.exists() || (newData.hasChildren() && !newData.child('1').exists())",
           "$i": {
-            ".validate": "newData.isString() && newData.val().length <= 700000"
+            ".validate": "newData.isString() && newData.val().length <= 260000"
           }
         },
         "month": {
