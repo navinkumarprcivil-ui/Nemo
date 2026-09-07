@@ -1804,7 +1804,31 @@ async function mediaSet(k,v){
 }
 async function mediaDel(k){ if(HAS_IDB){ await IDB.del(k); } try{ localStorage.removeItem(k); }catch(e){} }
 
-async function loadImg(id)   { const l=await mediaGet("nemo-img-"+id); if(l)return l; if(FB_OK){ const v=await fbGetObj("media/img-"+id); if(v){ mediaSet("nemo-img-"+id,v); return v; } } return null; }
+/* ── Images come from the CDN, not from the database ─────────────────────────────────
+   Product photos and guide posters were stored as base64 INSIDE the Realtime Database —
+   20.2 MB of it — and hydrateMedia loads every gallery image on boot, not merely the ones
+   on screen. So each fresh visitor pulled most of that node whatever page they landed on:
+   1.2 GB a day against the free plan's 10 GB month, which ends with the database cut off
+   and the shop down until the billing cycle rolls over.
+
+   Firebase Storage is the natural home for them and is not available here — it now requires
+   a billing account. So the files live in the repository and Cloudflare serves them: it
+   already serves this site, costs nothing, answers from a CDN close to the customer, and
+   sends /assets/* with a one-year immutable cache.
+
+   The database copy is deliberately LEFT IN PLACE. This changes only what is READ, so it
+   cannot lose an image — any key not in the list below, which means anything uploaded since
+   the migration, resolves exactly as it did before. The local cache is still consulted first
+   so the app keeps working offline. scripts/sync-media-list.mjs regenerates the list from
+   assets/media/, and a test fails if the two ever drift apart. */
+const CDN_MEDIA_KEYS=[
+  /* __MEDIA_LIST_START__ */
+  /* __MEDIA_LIST_END__ */
+];
+const CDN_MEDIA=new Set(CDN_MEDIA_KEYS);
+function cdnMediaPath(key){ return (key&&CDN_MEDIA.has(key))?("assets/media/"+key+".jpg"):null; }
+
+async function loadImg(id)   { const l=await mediaGet("nemo-img-"+id); if(l)return l; const c=cdnMediaPath("img-"+id); if(c)return c; if(FB_OK){ const v=await fbGetObj("media/img-"+id); if(v){ mediaSet("nemo-img-"+id,v); return v; } } return null; }
 async function saveImg(id,b) {
   await mediaSet("nemo-img-"+id,b);
   if(FB_OK){
@@ -1946,6 +1970,8 @@ async function saveMediaItem(key,b64){
 async function loadMediaItem(key){
   // Check local (IndexedDB) cache first — avoids a 6-second Firebase timeout on every image load
   const cached=await mediaGet("nemo-m-"+key); if(cached)return cached;
+  // Then the CDN copy, which costs the database nothing. See CDN_MEDIA_KEYS above.
+  const cdn=cdnMediaPath(key); if(cdn) return cdn;
   if(FB_OK){ try{ const s=await withTimeout(FB_DB.ref("media/"+key).get(),6000); const v=s&&s.val(); if(v){ mediaSet("nemo-m-"+key,v); return v; } }catch(e){} }
   return null;
 }
