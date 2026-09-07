@@ -85,10 +85,12 @@ requirement for personal developer accounts: at least 12 testers opted in contin
 |---|---|---|---|---|
 | 11 | `2.0.0` | Aug 2026 | Closed testing | no |
 | 12 | `2.0.1` | Sep 2026 | Closed testing | yes — **verified at checkout on a Play-signed install** |
-| 13 | `2.0.2` | Sep 2026 | Closed testing — submitted for review 7 Sep 2026 | yes, plus push notifications and the sign-in retry |
+| 13 | `2.0.2` | Sep 2026 | Closed testing — live 7 Sep 2026 | yes, plus push notifications and the sign-in retry |
 
-**Until version code 13 is installed, no notification of any kind can arrive.** It sat built
-and unuploaded for a release while the server half was debugged against a phone that could not
+**Until version code 13 is installed, no notification of any kind can arrive.** That gate is
+now open — 13 reached closed testing on 7 Sep 2026, and the first real notification, a new care
+guide, was delivered the same day. It is recorded because of how it was found: the build sat
+unuploaded for a release while the server half was debugged against a phone that could not
 receive anything — so if notifications are silent, check the installed version code first, not
 the code. Every sender
 in `api/cron-push.js` — shipped, delivered, back in stock, weekly tank care, new care guide —
