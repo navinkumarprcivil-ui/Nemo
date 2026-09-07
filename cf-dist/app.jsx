@@ -8111,7 +8111,7 @@ function ProductCard({product:p,imgSrc,onPress,onAdd,inCart=0,isFav=false,onFav,
    orders and favourites are deliberately left alone; only cached copies of data
    that lives on the server are removed, and those come straight back on boot. */
 /* Written by scripts/build.mjs into version.json and sw.js — bump it here only. */
-const APP_BUILD = "v90.147d7ca4";
+const APP_BUILD = "v90.5adc7a6b";
 async function forceRefresh(){
   /* The cached copies of products, guides and settings are deliberately NOT deleted here.
      They used to be, on the reasoning that "those come straight back on boot" — which is true
@@ -14999,44 +14999,58 @@ function NemoStore(){
       // deciding the device is offline and using the local community cache.
       if(!(FB_OK&&FB_DB)) await waitForFirebase(4000);
       if(!alive) return;
+      /* An OFF switch has to stop the READ, not merely the render. showcaseEnabled was checked
+         in one place — TankShowcaseSection returning null — so switching the showcase off hid
+         the gallery while this listener went on pulling the whole node on every visit. Entries
+         carry up to three base64 photos, so that is the most expensive node in the store, and
+         the owner was paying full price for a feature they had turned off. Same for
+         testimonials. Waiting for settingsReady matters: the default is ON, so deciding before
+         the owner's real settings arrive would attach, download, and only then detach.
+         A skipped listener still settles as empty, or boot readiness waits out the 8s guard. */
+      const wantShowcase = settings.showcaseEnabled!==false;
+      const wantTestimonials = settings.testimonialsEnabled!==false;
       if(!(FB_OK&&FB_DB)){
         Promise.all([
-          loadShowcase().then(useShowcase).catch(()=>useShowcase([])),
-          loadTestimonials().then(useTestimonials).catch(()=>useTestimonials([])),
+          wantShowcase?loadShowcase().then(useShowcase).catch(()=>useShowcase([])):useShowcase([]),
+          wantTestimonials?loadTestimonials().then(useTestimonials).catch(()=>useTestimonials([])):useTestimonials([]),
         ]);
         return;
       }
-      const scRef=FB_DB.ref("showcase");
-      const scCb=scRef.on("value",s=>{
-        if(!alive) return;
-        const v=s&&s.val(); const now=Date.now();
-        let arr=v?Object.values(v).filter(x=>x&&x.id):[];
-        arr=arr.filter(x=>!showcaseExpired(x,now)&&!showcasePendingExpired(x,now))
-          .sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
-        useShowcase(arr);
-        pruneShowcaseCache(arr);
-      },()=>{
-        loadShowcase().then(useShowcase).catch(()=>useShowcase([]));
-      });
-      const tsRef=FB_DB.ref("testimonials");
-      const tsCb=tsRef.on("value",s=>{
-        if(!alive) return;
-        const v=s&&s.val();
-        const arr=v?Object.values(v).filter(x=>x&&x.id)
-          .sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||"")):[];
-        useTestimonials(arr);
-        pruneTestimonialCache(arr);
-      },()=>{
-        loadTestimonials().then(useTestimonials).catch(()=>useTestimonials([]));
-      });
-      detach=()=>{
-        try{ scRef.off("value",scCb); }catch(e){}
-        try{ tsRef.off("value",tsCb); }catch(e){}
-      };
+      const offs=[];
+      if(wantShowcase){
+        const scRef=FB_DB.ref("showcase");
+        const scCb=scRef.on("value",s=>{
+          if(!alive) return;
+          const v=s&&s.val(); const now=Date.now();
+          let arr=v?Object.values(v).filter(x=>x&&x.id):[];
+          arr=arr.filter(x=>!showcaseExpired(x,now)&&!showcasePendingExpired(x,now))
+            .sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||""));
+          useShowcase(arr);
+          pruneShowcaseCache(arr);
+        },()=>{
+          loadShowcase().then(useShowcase).catch(()=>useShowcase([]));
+        });
+        offs.push(()=>{ try{ scRef.off("value",scCb); }catch(e){} });
+      } else useShowcase([]);
+      if(wantTestimonials){
+        const tsRef=FB_DB.ref("testimonials");
+        const tsCb=tsRef.on("value",s=>{
+          if(!alive) return;
+          const v=s&&s.val();
+          const arr=v?Object.values(v).filter(x=>x&&x.id)
+            .sort((a,b)=>(b.createdAt||"").localeCompare(a.createdAt||"")):[];
+          useTestimonials(arr);
+          pruneTestimonialCache(arr);
+        },()=>{
+          loadTestimonials().then(useTestimonials).catch(()=>useTestimonials([]));
+        });
+        offs.push(()=>{ try{ tsRef.off("value",tsCb); }catch(e){} });
+      } else useTestimonials([]);
+      detach=()=>{ offs.forEach(f=>f()); };
     };
-    start();
+    if(settingsReady) start();
     return()=>{ alive=false; clearTimeout(guard); detach(); };
-  },[fbReady]);
+  },[fbReady,settingsReady,settings.showcaseEnabled,settings.testimonialsEnabled]);
 
   // CUSTOMER: live listener on THEIR orders (reflects admin status updates instantly)
   useEffect(()=>{
