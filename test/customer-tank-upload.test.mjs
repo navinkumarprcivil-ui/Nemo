@@ -19,8 +19,21 @@ test("failed upload keeps the preview and always releases the button",()=>{
 });
 
 test("customer tank upload uses the bounded Firebase image compressor",()=>{
-  assert.match(src,/const MAX_TANK_IMAGE_CHARS=650000/);
+  /* The budget is set by what the gallery draws and what the free plan's download allowance can
+     carry, not by the largest value the rules happen to accept. These photos sit as base64 in a
+     node every visitor reads. */
+  assert.match(src,/const MAX_TANK_IMAGE_CHARS=200000/);
   assert.match(tank,/compressTankImage\(f\)/);
+});
+
+test("one photo per entry, stored exactly once",()=>{
+  /* Three photos rode inside one database record while imgData duplicated the first, so sharing
+     three cost four. Every visitor downloads that node in full. */
+  assert.match(tank,/const MAX_IMGS=1;/);
+  assert.doesNotMatch(tank,/imgs:preview/);
+  assert.match(tank,/onSubmit\(\{id:entryId,imgData:preview\[0\],ownerName:finalName/);
+  // Older multi-photo entries must still render for the rest of their 24-hour window.
+  assert.match(src,/const many=Array\.isArray\(x&&x\.imgs\)\?x\.imgs\.filter\(Boolean\):\[\];/);
 });
 
 test("Firebase upload returns without waiting for the optional offline cache",()=>{

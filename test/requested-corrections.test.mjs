@@ -57,7 +57,13 @@ test('payment, referral, wallet and tank lifecycle guards are server-enforced', 
   assert.match(rules.userrefs.$uid['.validate'], /referralLifetimeSpendMin/);
   assert.match(rules.showcase.$id['.write'], /approvedAt.*expiresAt/);
   assert.match(rules.totmVotes.$month.$entry.$day.$voter['.write'], /expiresAt.*now/);
-  assert.match(cleanupApi, /Object\.entries\(all\)/);
+  /* The sweep is keyed off the node's OWN key, never a field inside the entry — a row whose
+     `id` disagreed with its key would otherwise leave the real row behind forever. It reads
+     shallow because each entry carries a base64 tank photo, and pulling the node whole to read
+     five timestamps downloaded every customer's picture on every tick. */
+  assert.match(cleanupApi, /Object\.keys\(await dbGetShallow\('showcase'\) \|\| \{\}\)/);
+  assert.match(cleanupApi, /dbGet\(`showcase\/\$\{id\}\/\$\{f\}`\)/);
+  assert.doesNotMatch(cleanupApi, /await dbGet\('showcase'\)/);
   assert.doesNotMatch(cleanupApi, /encodeURIComponent\(entry\.id\)/);
   assert.match(restoreApi, /entry\.type === 'redeem'/);
   assert.match(restoreApi, /redemption-not-found/);

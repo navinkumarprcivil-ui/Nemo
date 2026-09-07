@@ -1,5 +1,5 @@
 /** Remove pending and approved customer-tank entries once their 24-hour window ends. */
-import { dbGet, dbDelete } from '../lib/payments.mjs';
+import { dbGet, dbGetShallow, dbDelete } from '../lib/payments.mjs';
 
 const TTL = 24 * 60 * 60 * 1000;
 
@@ -30,9 +30,24 @@ export default async function handler(req, res) {
   }
 
   try {
-    const all = await dbGet('showcase') || {};
+    /* Never read `showcase` whole. Each entry carries a base64 tank photo, so pulling the node
+       to inspect five timestamps downloaded every customer's picture — on every tick, ninety-six
+       times a day — and the free plan's download allowance is what stands between this shop and
+       being cut off for the rest of the billing cycle. The shallow read returns key names only,
+       and the fields below are scalars worth a few bytes each. */
+    const keys = Object.keys(await dbGetShallow('showcase') || {});
     const now = Date.now();
-    const expired = Object.entries(all).filter(([, entry]) => {
+    const FIELDS = ['approved', 'pendingExpiresAt', 'expiresAt', 'approvedAt', 'createdAt'];
+    const entries = await Promise.all(keys.map(async (key) => {
+      const id = encodeURIComponent(key);
+      const values = await Promise.all(
+        FIELDS.map((f) => dbGet(`showcase/${id}/${f}`).catch(() => null)),
+      );
+      const entry = {};
+      FIELDS.forEach((f, i) => { entry[f] = values[i]; });
+      return [key, entry];
+    }));
+    const expired = entries.filter(([, entry]) => {
       const expiry = tankEntryExpiry(entry);
       return expiry > 0 && expiry <= now;
     });

@@ -2078,12 +2078,17 @@ function compressImage(file, maxDim=1100, quality=0.82){
     img.onerror=(err)=>{ URL.revokeObjectURL(url); reject(err); }; img.src=url;
   });
 }
-/* Customer-tank rules cap each stored image at 700,000 characters. Compress through
-   progressively smaller attempts and keep headroom for data-URL metadata and Firebase encoding. */
-const MAX_TANK_IMAGE_CHARS=650000;
+/* A tank photo lives as base64 INSIDE the database, in a node every visitor reads, and the free
+   plan's download allowance is what stands between this shop and being cut off for the rest of
+   the billing cycle. 650,000 characters was roughly half a megabyte per photo — sized against
+   what the rules would accept rather than against what the gallery shows, which is a card a few
+   hundred pixels wide. 200,000 characters is about 150 KB and still comfortably sharper than the
+   card it is drawn in. The rules keep their own larger ceiling as a backstop against a client
+   that ignores this one. */
+const MAX_TANK_IMAGE_CHARS=200000;
 async function compressTankImage(file){
   let latest="";
-  for(const [maxDim,quality] of [[1000,.78],[850,.72],[720,.65]]){
+  for(const [maxDim,quality] of [[900,.74],[780,.66],[660,.58]]){
     latest=await compressImage(file,maxDim,quality);
     if(typeof latest==="string"&&latest.length<=MAX_TANK_IMAGE_CHARS) return latest;
   }
@@ -6242,17 +6247,20 @@ function TankShowcaseSection({showcase,user,settings,onSubmit,onVote,votes={},pr
   if(showGallery && !showUpload && ranked.length===0 && !mine && !(previousWinners&&(previousWinners.vote||previousWinners.streak))) return null;
   if(!showGallery && !showUpload) return null;
 
-  const MAX_IMGS=3;
+  /* One photo per entry. Three of them rode inside a single database record, in a node that
+     every visitor downloads in full, and the entry duplicated the first one on top of that (see
+     submit below) — so a customer sharing three pictures cost four. The gallery shows one card
+     per customer anyway; the others were only visible after a tap. */
+  const MAX_IMGS=1;
   const handleFiles=async files=>{
     const list=Array.from(files||[]).slice(0,MAX_IMGS-preview.length);
     if(!list.length) return;
     setNote("Processing…");
     try{
-      // Smaller than a single-photo entry was: three of these ride in one database record.
       const out=[];
       for(const f of list) out.push(await compressTankImage(f));
       setPreview(p=>[...p,...out].slice(0,MAX_IMGS));
-      setNote(`✓ ${Math.min(preview.length+out.length,MAX_IMGS)} photo${preview.length+out.length>1?"s":""} ready`);
+      setNote("✓ Photo ready");
     }catch(e){ setNote("⚠ Couldn't read that image — try a JPG or PNG"); }
   };
   const submit=async()=>{
@@ -6262,7 +6270,11 @@ function TankShowcaseSection({showcase,user,settings,onSubmit,onVote,votes={},pr
     try{
       const entryId=minePending?.id||(user?.uid?(user.uid+"_"+Date.now().toString(36)):uid("sc"));
       const submittedAt=Date.now();
-      const uploaded=await onSubmit({id:entryId,imgData:preview[0],imgs:preview,ownerName:finalName,caption:caption.trim(),
+      /* `imgs` is not written any more. It used to carry the whole preview list WHILE imgData
+         carried preview[0] as well, so every entry stored its first photo twice. showcaseImgs
+         still reads `imgs` first, so entries posted before this — none of which outlive their
+         24-hour window — keep rendering all of theirs. */
+      const uploaded=await onSubmit({id:entryId,imgData:preview[0],ownerName:finalName,caption:caption.trim(),
         createdAt:new Date(submittedAt).toISOString(),pendingExpiresAt:submittedAt+SHOWCASE_PENDING_TTL,
         approved:false,userUid:user?.uid||(user?userKey(user):""),...(contest?{month}:{})});
       if(!uploaded) throw new Error("tank-upload-failed");
@@ -6364,8 +6376,8 @@ function TankShowcaseSection({showcase,user,settings,onSubmit,onVote,votes={},pr
           {preview.length<MAX_IMGS&&(
             <label style={{display:"flex",flexDirection:"column",alignItems:"center",gap:5,border:`1.5px dashed ${C.border}`,borderRadius:12,padding:"14px",cursor:"pointer",marginBottom:8,background:C.bg}}>
               <span style={{fontSize:24}}>🐡</span>
-              <span style={{fontSize:12,fontWeight:700,color:C.primary}}>{preview.length?`Add another (${preview.length}/${MAX_IMGS})`:"Tap to add your tank photos"}</span>
-              <input type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>{const chosen=Array.from(e.target.files||[]);e.target.value="";void handleFiles(chosen);}}/>
+              <span style={{fontSize:12,fontWeight:700,color:C.primary}}>Tap to add your tank photo</span>
+              <input type="file" accept="image/*" style={{display:"none"}} onChange={e=>{const chosen=Array.from(e.target.files||[]);e.target.value="";void handleFiles(chosen);}}/>
             </label>
           )}
           <div style={{display:"flex",alignItems:"center",gap:8,width:"100%",borderRadius:12,border:`1.5px solid ${C.border}`,padding:"9px 12px",fontSize:13,background:C.bg,marginBottom:6,color:C.text}}>
