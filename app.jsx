@@ -6548,14 +6548,24 @@ function GuideNotifBtn(){
      silence with nothing on screen to explain it. Re-read the stored preference inside the
      callback rather than trusting `v`: a fast on-then-off must not land a warning on a switch
      that is now off. */
-  const apply=(v)=>{ setOn(v); setGuideNotifPref(v); syncGuideSub(v,why=>{ if(why==="rejected"&&guideNotifOn()) setNote(NOT_SUBSCRIBED); }); };
+  const apply=(v)=>{ setOn(v); setGuideNotifPref(v); syncGuideSub(v,report); };
   const signedIn=()=>{ try{ return !!(FB_AUTH&&FB_AUTH.currentUser); }catch(e){ return false; } };
+  /* A refused subscription outranks anything the browser has to say, and must not be overwritten
+     by a permission answer that happens to arrive later — the two callbacks race, and losing
+     that race hides the only failure that produces silence with no other symptom. Held in a ref
+     rather than state because the permission callback reads it at the moment it fires. */
+  const subFailed=useRef(false);
+  const report=(why)=>{
+    subFailed.current = why==="rejected";
+    if(subFailed.current&&guideNotifOn()) setNote(NOT_SUBSCRIBED);
+  };
+  const permNote=(p)=>{ setPerm(p); if(!subFailed.current) setNote(noteFor(p)); };
 
   /* A preference set before signing in has no owner to file it under. Firebase resolving auth
      is the moment it gets one, so re-file it then — otherwise switching this on and signing in
      afterwards leaves a switch that reads ON and a server that has never heard of you. */
   useEffect(()=>{
-    const push=()=>{ if(guideNotifOn()) syncGuideSub(true,why=>{ if(why==="rejected"&&guideNotifOn()) setNote(NOT_SUBSCRIBED); }); };
+    const push=()=>{ if(guideNotifOn()) syncGuideSub(true,report); };
     push();
     window.addEventListener("nemo-fb-ready",push);
     return()=>window.removeEventListener("nemo-fb-ready",push);
@@ -6614,7 +6624,7 @@ function GuideNotifBtn(){
     if(perm==="granted"){ setNote(""); return; }
     if(perm==="denied"||perm==="unsupported"){ setNote(noteFor(perm)); return; }
     setNote("");
-    requestNotifPerm(res=>{ setPerm(res); setNote(noteFor(res)); });
+    requestNotifPerm(permNote);
   };
   return(
     <div style={{display:"flex",flexDirection:"column",alignItems:"flex-end",gap:5}}>

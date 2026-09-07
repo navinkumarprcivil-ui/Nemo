@@ -77,7 +77,7 @@ for (const file of ['app.jsx']) {
     /* This was the whole bug. The preference was stored in localStorage and read by exactly one
        guard — sendLocalNotif's channel==="guides" — which no caller ever triggered. The switch
        moved, saved, and did nothing, in every browser and in the app. */
-    assert.match(block, /const apply=\(v\)=>\{ setOn\(v\); setGuideNotifPref\(v\); syncGuideSub\(v,why=>/);
+    assert.match(block, /const apply=\(v\)=>\{ setOn\(v\); setGuideNotifPref\(v\); syncGuideSub\(v,report\); \};/);
     assert.match(src, /function syncGuideSub\(on,done\)\{/);
     assert.match(src, /FB_DB\.ref\("guideSubs\/"\+uid\)/);
     // Opting out leaves no row, rather than a row saying no.
@@ -88,7 +88,7 @@ for (const file of ['app.jsx']) {
     // guideSubs is keyed on the account. Without this the switch reads ON while the server has
     // never heard of the customer.
     assert.match(block, /window\.addEventListener\("nemo-fb-ready",push\)/);
-    assert.match(block, /const push=\(\)=>\{ if\(guideNotifOn\(\)\) syncGuideSub\(true,why=>/);
+    assert.match(block, /const push=\(\)=>\{ if\(guideNotifOn\(\)\) syncGuideSub\(true,report\); \};/);
     assert.match(block, /const SIGNED_OUT="Saved\. Sign in to get these\.";/);
   });
 
@@ -101,8 +101,22 @@ for (const file of ['app.jsx']) {
     assert.match(src, /ref\.set\(\{at:Date\.now\(\)\}\)\.then\(\(\)=>say\(""\),fail\);/);
     assert.match(block, /const NOT_SUBSCRIBED="Saved\. Couldn't subscribe you on the server\.";/);
     // Both routes to the server report it: the tap, and the re-file once auth resolves.
-    const uses = block.match(/why==="rejected"&&guideNotifOn\(\)\) setNote\(NOT_SUBSCRIBED\)/g) || [];
+    const uses = block.match(/syncGuideSub\((?:v|true),report\)/g) || [];
     assert.equal(uses.length, 2, 'the tap and the sign-in re-file must both surface a refusal');
+  });
+
+  test(file + ': a refusal is not overwritten by a permission answer', () => {
+    /* Both callbacks call setNote and they race. requestNotifPerm's resolves whenever the
+       customer answers the browser dialog, which can be seconds after the Firebase write has
+       already come back refused — and the refusal is the one that matters, because it is the
+       only failure with no other symptom. Losing that race makes the note say the write
+       succeeded when it did not, which is worse than saying nothing. */
+    assert.match(block, /const subFailed=useRef\(false\);/);
+    assert.match(block, /subFailed\.current = why==="rejected";/);
+    assert.match(block, /const permNote=\(p\)=>\{ setPerm\(p\); if\(!subFailed\.current\) setNote\(noteFor\(p\)\); \};/);
+    // The raw two-line callback that could clobber it must be gone from the request site.
+    assert.match(block, /requestNotifPerm\(permNote\);/);
+    assert.doesNotMatch(block, /requestNotifPerm\(res=>/);
   });
 
   test(file + ': the installed app is not asked about a permission it does not use', () => {
