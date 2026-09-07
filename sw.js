@@ -1,5 +1,5 @@
 /* Nemo Aqua Store — service worker (offline fallback + always-fresh code) */
-const CACHE = 'nemo-v90.e73cceb7';
+const CACHE = 'nemo-v90.147d7ca4';
 /* Precached on install — so keep this to what a visit actually uses. The logo is
    here as WebP only: the splash asks for the WebP, so the PNG beside it is
    reached only by a browser that cannot read WebP, and precaching 160 KB for a

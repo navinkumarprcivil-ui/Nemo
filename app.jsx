@@ -15635,6 +15635,14 @@ function AdminHub({products,orders,mediaCache,requests,guides,settings,interestC
               style={{width:"100%",background:C.primary,color:"white",border:"none",borderRadius:16,padding:"14px",fontSize:14,fontWeight:700,fontFamily:"'Plus Jakarta Sans',sans-serif",marginBottom:16}}>
               + Add Care Guide / Poster
             </button>
+            {/* A poster and the guide that shows it are stored apart — the image at
+                media/img-<id>, the title and category in `guides` — so a guide that went missing
+                left its poster behind with nothing pointing at it: invisible through the UI and
+                impossible to delete or reuse. PosterRecovery finds those and puts them back
+                against their existing id, so nothing is re-uploaded. It was written and then
+                never rendered anywhere, which is the only reason the images have been stranded. */}
+            <PosterRecovery products={products} requests={requests} guides={guides} showcase={showcase}
+              onRestore={onSaveGuide} showToast={showToast}/>
             {guides.length===0?(
               <div style={{textAlign:"center",padding:"40px 0",color:C.textSub}}>
                 <div style={{fontSize:48,marginBottom:14}}>📖</div>
