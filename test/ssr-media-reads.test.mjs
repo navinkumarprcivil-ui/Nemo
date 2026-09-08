@@ -75,3 +75,29 @@ test('the share-image route sends CDN keys to the CDN instead of reading the dat
   // And the database path stays for everything uploaded since the migration.
   assert.match(workerSrc, /\$\{MEDIA_DB\}\/media\/\$\{encodeURIComponent\(key\)\}\.json/);
 });
+
+test('the rendered pages are actually put in the edge cache', () => {
+  // The Cache-Control header on these routes was decorative: Cloudflare fills its cache from
+  // responses that came through fetch, and a Worker returning a Response it built itself is
+  // invisible to it. So every crawler hit re-rendered — and, until the fix above, re-read the
+  // whole media node with it. cachePage is what makes the header mean something.
+  assert.match(workerSrc, /async function cachedPage\(request, ctx, render\)/);
+  assert.match(workerSrc, /const hit = await cache\.match\(key\);[\s\S]{0,120}return hit;/);
+  assert.match(workerSrc, /cache\.put\(key, response\.clone\(\)\)/);
+
+  // Every server-rendered GET route goes through it.
+  for (const route of [/cachedPage\(request, ctx, \(\) => runHandler\(sitemap/,
+                       /cachedPage\(request, ctx, \(\) => runHandler\(productPage/,
+                       /cachedPage\(request, ctx, \(\) => runHandler\(sharePage/]) {
+    assert.match(workerSrc, route);
+  }
+});
+
+test('a failure is never cached, and a page that asked not to be is not either', () => {
+  // Caching a 5xx would pin an outage to the URL for as long as its lifetime. And the handlers
+  // set no-store on their own error paths, which has to be honoured or the same thing happens.
+  assert.match(workerSrc, /response\.status === 200 \|\| response\.status === 404/);
+  assert.match(workerSrc, /max-age=\/\.test\(response\.headers\.get\('Cache-Control'\)/);
+  // A non-GET request must never be served from, or written to, a shared cache.
+  assert.match(workerSrc, /if \(request\.method !== 'GET'\) return render\(\);/);
+});

@@ -116,6 +116,41 @@ async function runHandler(handler, request, url, options) {
   }
 }
 
+/**
+ * Serve a rendered page from Cloudflare's cache when it is already there, and put it there when
+ * it is not.
+ *
+ * These routes have always set `Cache-Control: s-maxage=...`, and it has never done anything.
+ * Cloudflare only fills its cache from responses that came back through `fetch`; a Worker that
+ * builds its own Response is invisible to it. So the header described a cache nobody was
+ * writing to, every crawler hit re-rendered, and — until the read above was removed — re-read
+ * the whole media node with it. Putting the response in explicitly is what makes the promise on
+ * the header true.
+ *
+ * The handler stays the authority on how long: only responses that ask to be cached are stored,
+ * and the age it asked for is the age it gets.
+ */
+async function cachedPage(request, ctx, render) {
+  if (request.method !== 'GET') return render();
+
+  const cache = caches.default;
+  const key = new Request(request.url, { method: 'GET' });
+  try {
+    const hit = await cache.match(key);
+    if (hit) return hit;
+  } catch { /* a cache that cannot be read is not a reason to fail the page */ }
+
+  const response = await render();
+  // 404s are cached too: a delisted product is re-requested by crawlers for weeks, and each of
+  // those was a full render. Never cache an error — a 5xx must not stick to the URL.
+  const cacheable = (response.status === 200 || response.status === 404)
+    && /max-age=/.test(response.headers.get('Cache-Control') || '');
+  if (cacheable && ctx && typeof ctx.waitUntil === 'function') {
+    try { ctx.waitUntil(cache.put(key, response.clone())); } catch { /* not fatal */ }
+  }
+  return response;
+}
+
 function withQuery(url, key, value) {
   const next = new URL(url);
   next.searchParams.set(key, value);
@@ -364,16 +399,18 @@ export default {
       return shareImageResponse(request, url, mediaKey);
     }
 
-    if (path === '/sitemap.xml') return runHandler(sitemap, request, url);
+    if (path === '/sitemap.xml') {
+      return cachedPage(request, ctx, () => runHandler(sitemap, request, url));
+    }
 
     if (path === '/p' || path.startsWith('/p/')) {
       const slug = path === '/p' ? '' : decodeURIComponent(path.slice(3));
-      return runHandler(productPage, request, withQuery(url, 'slug', slug));
+      return cachedPage(request, ctx, () => runHandler(productPage, request, withQuery(url, 'slug', slug)));
     }
 
     if (path.startsWith('/s/')) {
       const id = decodeURIComponent(path.slice(3));
-      return runHandler(sharePage, request, withQuery(url, 'id', id));
+      return cachedPage(request, ctx, () => runHandler(sharePage, request, withQuery(url, 'id', id)));
     }
 
     const handler = API.get(path);
