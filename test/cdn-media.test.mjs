@@ -54,3 +54,15 @@ test('a key with no CDN file still falls through to the database', () => {
   // Anything uploaded after the migration is not in the list and must keep working untouched.
   assert.match(src, /function cdnMediaPath\(key\)\{ return \(key&&CDN_MEDIA\.has\(key\)\)\?\("assets\/media\/"\+key\+"\.jpg"\):null; \}/);
 });
+
+test('the space-clearing tool can only touch images the CDN already has', () => {
+  // It exists because `media` is 20.2 MB of a 20.8 MB database. The safety property is that it
+  // iterates CDN_MEDIA_KEYS and nothing else: every key in that list has a file behind it (the
+  // tests above), so there is no input for which it clears an image with nowhere else to come
+  // from. Anything uploaded since the migration is absent from the list and untouched.
+  assert.match(src, /async function pruneCdnMediaFromDb\(onProgress\)\{[\s\S]{0,400}for\(const key of CDN_MEDIA_KEYS\)/);
+  // And it reads nothing — a removal of an absent path is free, which is what makes it safe to
+  // press twice. A read here would cost the very allowance the tool is protecting.
+  const body = src.slice(src.indexOf('async function pruneCdnMediaFromDb'));
+  assert.doesNotMatch(body.slice(0, 500), /\.get\(\)|fbGetObj|once\(/);
+});

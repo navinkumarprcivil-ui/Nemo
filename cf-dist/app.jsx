@@ -2062,6 +2062,27 @@ async function delMediaItem(key){
   await mediaDel("nemo-m-"+key);
   if(FB_OK){ try{ await FB_DB.ref("media/"+key).remove(); }catch(e){} }
 }
+/* Drop the database copy of every image that now has a file on the CDN.
+
+   `media` is 20.2 MB of a 20.8 MB database — base64 photos and posters, kept there because
+   Firebase Storage needs a paid plan. Once a copy is in assets/media/ the database one is dead
+   weight: every reader checks the CDN first (see CDN_MEDIA_KEYS), so deleting it changes
+   nothing on screen and frees almost the whole database.
+
+   Only keys in that list are touched, and the list is generated from the directory with a test
+   that fails the build if it drifts — so there is no way to delete an image the CDN does not
+   have. Nothing is read: remove() on a path that is already gone is a no-op, which also makes
+   pressing this twice free. Anything uploaded since the migration is not in the list and is
+   left exactly where it is. */
+async function pruneCdnMediaFromDb(onProgress){
+  if(!FB_OK||!FB_DB) return 0;
+  let done=0;
+  for(const key of CDN_MEDIA_KEYS){
+    try{ await FB_DB.ref("media/"+key).remove(); }catch(e){}
+    if(onProgress) onProgress(++done, CDN_MEDIA_KEYS.length);
+  }
+  return done;
+}
 /* Compress an image file to a JPEG data-URL (keeps RTDB + sync light) */
 function compressImage(file, maxDim=1100, quality=0.82){
   return new Promise((resolve,reject)=>{
@@ -8123,7 +8144,7 @@ function ProductCard({product:p,imgSrc,onPress,onAdd,inCart=0,isFav=false,onFav,
    orders and favourites are deliberately left alone; only cached copies of data
    that lives on the server are removed, and those come straight back on boot. */
 /* Written by scripts/build.mjs into version.json and sw.js — bump it here only. */
-const APP_BUILD = "v90.b8a332f9";
+const APP_BUILD = "v90.f0036405";
 async function forceRefresh(){
   /* The cached copies of products, guides and settings are deliberately NOT deleted here.
      They used to be, on the reasoning that "those come straight back on boot" — which is true

@@ -2062,6 +2062,27 @@ async function delMediaItem(key){
   await mediaDel("nemo-m-"+key);
   if(FB_OK){ try{ await FB_DB.ref("media/"+key).remove(); }catch(e){} }
 }
+/* Drop the database copy of every image that now has a file on the CDN.
+
+   `media` is 20.2 MB of a 20.8 MB database — base64 photos and posters, kept there because
+   Firebase Storage needs a paid plan. Once a copy is in assets/media/ the database one is dead
+   weight: every reader checks the CDN first (see CDN_MEDIA_KEYS), so deleting it changes
+   nothing on screen and frees almost the whole database.
+
+   Only keys in that list are touched, and the list is generated from the directory with a test
+   that fails the build if it drifts — so there is no way to delete an image the CDN does not
+   have. Nothing is read: remove() on a path that is already gone is a no-op, which also makes
+   pressing this twice free. Anything uploaded since the migration is not in the list and is
+   left exactly where it is. */
+async function pruneCdnMediaFromDb(onProgress){
+  if(!FB_OK||!FB_DB) return 0;
+  let done=0;
+  for(const key of CDN_MEDIA_KEYS){
+    try{ await FB_DB.ref("media/"+key).remove(); }catch(e){}
+    if(onProgress) onProgress(++done, CDN_MEDIA_KEYS.length);
+  }
+  return done;
+}
 /* Compress an image file to a JPEG data-URL (keeps RTDB + sync light) */
 function compressImage(file, maxDim=1100, quality=0.82){
   return new Promise((resolve,reject)=>{
@@ -15913,6 +15934,8 @@ function SettingsPanel({settings,onSave,products=[]}){
   const [sigNote,setSigNote]=useState("");
   const [pwMsg,setPwMsg]=useState("");
   const [backupMsg,setBackupMsg]=useState("");
+  const [pruneMsg,setPruneMsg]=useState("");
+  const [pruneArmed,setPruneArmed]=useState(false);
   const [cacheMsg,setCacheMsg]=useState("");
   const [cacheBusy,setCacheBusy]=useState(false);
   const [sec,setSec]=useState("store"); // settings are split into pages; this is the active one
@@ -16245,6 +16268,48 @@ function SettingsPanel({settings,onSave,products=[]}){
           <div style={{background:"#fff7ed",border:`1px solid #fed7aa`,borderRadius:12,padding:"11px 13px",fontSize:12,color:"#9a3412",lineHeight:1.5}}>🔒 Sign in with your Google admin account to download the full backup (it includes orders, which only you can read).</div>
         )}
         {backupMsg&&<div style={{fontSize:11,color:backupMsg[0]==="✓"?C.success:backupMsg[0]==="⚠"?C.danger:C.textSub,fontWeight:600,marginTop:8}}>{backupMsg}</div>}
+      </Collapsible>
+
+      {/* Free database space ─────────────────────────────────────────────────
+          The database is almost entirely old photos. Every one already has a
+          copy on the CDN, which each reader now consults first, so the
+          database copies are dead weight filling the free allowance. Only
+          images with a CDN file are touched — that list is generated from the
+          directory and the build fails if it drifts — so this cannot clear a
+          picture that has nowhere else to come from. */}
+      <Collapsible icon="🗜️" title="Free Database Space">
+        <div style={{fontSize:12,color:C.textSub,marginBottom:12,lineHeight:1.5}}>
+          Your database is <b>almost all old photos</b> ({CDN_MEDIA_KEYS.length} of them). Every one already has a copy
+          on the website's fast image server, and the app reads that copy first — so the database ones are never
+          used. Clearing them frees nearly the whole database and <b>nothing changes on screen</b>.
+          Photos you have uploaded since the move are left alone.
+        </div>
+        {adminOk ? (
+          <>
+            <button className="press" disabled={pruneMsg==="working"}
+              onClick={async()=>{
+                if(!pruneArmed){ setPruneArmed(true); setPruneMsg(""); return; }
+                setPruneArmed(false); setPruneMsg("working");
+                try{
+                  const n=await pruneCdnMediaFromDb((done,total)=>setPruneMsg("Clearing "+done+" of "+total+"…"));
+                  setPruneMsg("✓ Cleared "+n+" old copies. Firebase usually shows the new size within an hour.");
+                }catch(e){ setPruneMsg("⚠ Could not clear them — try again"); }
+              }}
+              style={{width:"100%",background:pruneArmed?C.danger:C.primary,color:"white",border:"none",borderRadius:12,padding:"12px",fontSize:13,fontWeight:700,fontFamily:"'Plus Jakarta Sans',sans-serif",opacity:pruneMsg==="working"?.6:1}}>
+              {pruneArmed?"Tap again to clear — this cannot be undone":"🗃 Clear old photo copies from the database"}
+            </button>
+            {pruneArmed&&(
+              <button className="press" onClick={()=>{setPruneArmed(false);setPruneMsg("");}}
+                style={{width:"100%",marginTop:8,background:"transparent",color:C.textSub,border:`1px solid ${C.border}`,borderRadius:12,padding:"10px",fontSize:12,fontWeight:700,fontFamily:"'Plus Jakarta Sans',sans-serif"}}>
+                Cancel
+              </button>
+            )}
+            <div style={{fontSize:11,color:C.textSub,marginTop:8,lineHeight:1.5}}>💡 Download a backup first (above) if you want a copy of the originals.</div>
+          </>
+        ) : (
+          <div style={{background:"#fff7ed",border:`1px solid #fed7aa`,borderRadius:12,padding:"11px 13px",fontSize:12,color:"#9a3412",lineHeight:1.5}}>🔒 Sign in with your Google admin account to clear the old copies.</div>
+        )}
+        {pruneMsg&&pruneMsg!=="working"&&<div style={{fontSize:11,color:pruneMsg[0]==="✓"?C.success:pruneMsg[0]==="⚠"?C.danger:C.textSub,fontWeight:600,marginTop:8}}>{pruneMsg}</div>}
       </Collapsible>
 
       {/* Clear cached copies ─────────────────────────────────────────────────
