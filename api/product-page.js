@@ -10,9 +10,8 @@
  * linger in it.
  */
 
-import { loadCatalogue, productPage, catalogPage, notFoundPage } from '../lib/catalog.mjs';
-
-const DB = 'https://nemo-aqua-store-default-rtdb.asia-southeast1.firebasedatabase.app';
+import { loadCatalogue, productPage, catalogPage, notFoundPage, BASE } from '../lib/catalog.mjs';
+import { cdnMediaUrl, dbMediaUrl, mediaUrlFor } from '../lib/media-cdn.mjs';
 
 function mediaUrl(value) {
   if (typeof value === 'string') return value;
@@ -21,20 +20,23 @@ function mediaUrl(value) {
 }
 
 /**
- * Hydrate the server-rendered /p pages with the same public Firebase media that
- * the browser storefront resolves through loadMediaItem(). Firebase stores
- * legacy gallery bytes/URLs under media/<key>, thumbnails under
- * media/<key>_thumb, and older single-product images under media/img-<id>.
+ * Give every gallery item a URL a crawler can fetch.
+ *
+ * This used to read the whole `media` node to find a handful of keys — 20 MB of base64, on
+ * every request. Worker-rendered responses are not stored in Cloudflare's cache, whatever
+ * Cache-Control says, so "cached at the edge for ten minutes" was never true of this route and
+ * each crawler hit paid for all of it. That one line was most of a 1.2 GB day against a 10 GB
+ * month.
+ *
+ * None of those bytes were needed. The page only ever puts an image in an <img src> or an
+ * og:image, so a URL is the whole job: the CDN copy where assets/media/ has one, otherwise the
+ * /share-image/ route, which reads that single key and is edge-cached for an hour. The render
+ * now costs the database nothing.
+ *
+ * It also repairs the share previews. og:image was a base64 data URL for anything still in the
+ * database, and no social crawler can fetch one of those.
  */
-async function hydrateCatalogueMedia(cat) {
-  let mediaMap = {};
-  try {
-    const r = await fetch(`${DB}/media.json`, { signal: AbortSignal.timeout(5000) });
-    if (r.ok) mediaMap = (await r.json()) || {};
-  } catch {
-    return cat;
-  }
-
+export function hydrateCatalogueMedia(cat) {
   for (const p of cat.products || []) {
     let hasPhoto = false;
     const existing = Array.isArray(p.media) ? p.media : [];
@@ -43,11 +45,15 @@ async function hydrateCatalogueMedia(cat) {
       if (!m || m.type === 'video') return m;
 
       const key = String(m.key || '').trim();
-      const full = mediaUrl(m.url)
-        || (key ? mediaUrl(mediaMap[key]) : '');
+      const thumbKey = key ? `${key}_thumb` : '';
+      // The product record listing the item is the evidence that it exists; a thumbnail is
+      // only there when m.thumb says so, or when the CDN plainly has the file. Pointing at a
+      // thumbnail that was never made would serve the share banner in its place.
+      const full = mediaUrl(m.url) || mediaUrlFor(key, BASE);
       const thumb = mediaUrl(m.thumbUrl)
         || mediaUrl(m.url_thumb)
-        || (key ? mediaUrl(mediaMap[`${key}_thumb`]) : '');
+        || cdnMediaUrl(thumbKey, BASE)
+        || (m.thumb ? dbMediaUrl(thumbKey, BASE) : '');
 
       if (full || thumb) hasPhoto = true;
       return {
@@ -58,7 +64,7 @@ async function hydrateCatalogueMedia(cat) {
     });
 
     if (!hasPhoto) {
-      const legacy = mediaUrl(p.imageUrl) || mediaUrl(mediaMap[`img-${p.id}`]);
+      const legacy = mediaUrl(p.imageUrl) || (p.hasImg ? mediaUrlFor(`img-${p.id}`, BASE) : '');
       if (legacy) p.media = [{ type: 'image', url: legacy }, ...p.media];
     }
   }
@@ -72,7 +78,7 @@ export default async function handler(req, res) {
   let cat = null;
   try {
     cat = await loadCatalogue();
-    await hydrateCatalogueMedia(cat);
+    hydrateCatalogueMedia(cat);
   } catch (e) {
     // A slow or unreachable database must not make the shop look deleted. 503
     // with a short retry tells a crawler to come back rather than drop the URL.

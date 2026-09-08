@@ -11,6 +11,7 @@ import sharePage from '../api/share.js';
 import productPage from '../api/product-page.js';
 import sitemap from '../api/sitemap.js';
 import { loadStoreSettings } from '../lib/catalog.mjs';
+import { cdnMediaPath } from '../lib/media-cdn.mjs';
 
 const API = new Map([
   ['/api/pay-create', payCreate],
@@ -137,6 +138,7 @@ function redirectApex(url) {
 }
 
 const MEDIA_DB = 'https://nemo-aqua-store-default-rtdb.asia-southeast1.firebasedatabase.app';
+const SITE = 'https://www.nemoaquastore.in';
 
 function imageBytes(dataUrl) {
   if (typeof dataUrl !== 'string') return null;
@@ -163,6 +165,22 @@ async function shareImageResponse(request, url, mediaKey) {
 
   const preferThumb = url.searchParams.get('thumb') === '1';
   const candidates = preferThumb ? [`${mediaKey}_thumb`, mediaKey] : [mediaKey];
+
+  // A key whose file is on the CDN never needs the database. Send the caller straight there:
+  // the asset is immutable and cached forever, where this route costs a read per key per hour.
+  for (const key of candidates) {
+    const path = cdnMediaPath(key);
+    if (path) {
+      return new Response(null, {
+        status: 302,
+        headers: {
+          ...securityHeaders,
+          Location: `${SITE}/${path}`,
+          'Cache-Control': 'public, max-age=86400, s-maxage=604800',
+        },
+      });
+    }
+  }
 
   for (const key of candidates) {
     try {
@@ -208,7 +226,7 @@ async function shareImageResponse(request, url, mediaKey) {
     status: 302,
     headers: {
       ...securityHeaders,
-      Location: 'https://www.nemoaquastore.in/assets/share-banner.jpg',
+      Location: `${SITE}/assets/share-banner.jpg`,
       'Cache-Control': 'public, max-age=300, s-maxage=300',
     },
   });

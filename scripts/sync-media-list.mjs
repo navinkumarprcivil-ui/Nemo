@@ -7,6 +7,10 @@
  * that did not need to happen. Hand-maintaining it would drift the first time anyone adds a
  * photo, so it is generated — and test/cdn-media.test.mjs fails the build if it is stale.
  *
+ * Two files carry the list: lib/media-cdn.mjs, which the server-rendered pages import, and
+ * app.jsx, which is transformed rather than bundled and so keeps its own copy. Both are written
+ * from the same directory listing here, so they cannot disagree.
+ *
  * Run after adding or removing anything in assets/media/:  node scripts/sync-media-list.mjs
  */
 import { readdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
@@ -27,11 +31,14 @@ export function mediaKeysOnDisk() {
     .sort();
 }
 
-/** The list as app.jsx currently declares it. */
-export function mediaKeysInSource(src) {
+/** Every file that carries a generated copy of the list. */
+export const LIST_FILES = ['lib/media-cdn.mjs', 'app.jsx'];
+
+/** The list as one of those files currently declares it. */
+export function mediaKeysInSource(src, name = 'the source') {
   const a = src.indexOf(START);
   const b = src.indexOf(END, a);
-  if (a < 0 || b < 0) throw new Error('CDN_MEDIA_KEYS markers not found in app.jsx');
+  if (a < 0 || b < 0) throw new Error(`CDN_MEDIA_KEYS markers not found in ${name}`);
   return [...src.slice(a + START.length, b).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 }
 
@@ -40,14 +47,20 @@ export function renderList(keys) {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  const file = join(ROOT, 'app.jsx');
-  const src = readFileSync(file, 'utf8');
   const keys = mediaKeysOnDisk();
-  const a = src.indexOf(START);
-  const b = src.indexOf(END, a);
-  if (a < 0 || b < 0) throw new Error('CDN_MEDIA_KEYS markers not found in app.jsx');
-  const next = src.slice(0, a + START.length) + renderList(keys) + src.slice(b);
-  if (next === src) { console.log(`app.jsx already lists ${keys.length} CDN image(s)`); process.exit(0); }
-  writeFileSync(file, next);
-  console.log(`app.jsx now lists ${keys.length} CDN image(s) from assets/media/`);
+  const changed = [];
+  for (const rel of LIST_FILES) {
+    const file = join(ROOT, rel);
+    const src = readFileSync(file, 'utf8');
+    const a = src.indexOf(START);
+    const b = src.indexOf(END, a);
+    if (a < 0 || b < 0) throw new Error(`CDN_MEDIA_KEYS markers not found in ${rel}`);
+    const next = src.slice(0, a + START.length) + renderList(keys) + src.slice(b);
+    if (next === src) continue;
+    writeFileSync(file, next);
+    changed.push(rel);
+  }
+  console.log(changed.length
+    ? `${changed.join(' and ')} now list ${keys.length} CDN image(s) from assets/media/`
+    : `${LIST_FILES.join(' and ')} already list ${keys.length} CDN image(s)`);
 }

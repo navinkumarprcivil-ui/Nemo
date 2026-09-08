@@ -14,22 +14,32 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mediaKeysOnDisk, mediaKeysInSource } from '../scripts/sync-media-list.mjs';
+import { mediaKeysOnDisk, mediaKeysInSource, LIST_FILES } from '../scripts/sync-media-list.mjs';
 
 const src = readFileSync(new URL('../app.jsx', import.meta.url), 'utf8');
+const listing = (rel) => mediaKeysInSource(readFileSync(new URL(`../${rel}`, import.meta.url), 'utf8'), rel);
 
-test('every listed key has a file, and every file is listed', () => {
-  const disk = mediaKeysOnDisk();
-  const listed = mediaKeysInSource(src);
-  const missing = listed.filter((k) => !disk.includes(k));
-  const unlisted = disk.filter((k) => !listed.includes(k));
-  assert.deepEqual(missing, [], 'listed but absent from assets/media/ — these render broken');
-  assert.deepEqual(unlisted, [], 'in assets/media/ but unlisted — run node scripts/sync-media-list.mjs');
-});
+for (const rel of LIST_FILES) {
+  test(`${rel}: every listed key has a file, and every file is listed`, () => {
+    const disk = mediaKeysOnDisk();
+    const listed = listing(rel);
+    const missing = listed.filter((k) => !disk.includes(k));
+    const unlisted = disk.filter((k) => !listed.includes(k));
+    assert.deepEqual(missing, [], 'listed but absent from assets/media/ — these render broken');
+    assert.deepEqual(unlisted, [], 'in assets/media/ but unlisted — run node scripts/sync-media-list.mjs');
+  });
 
-test('the list is sorted, so its diff stays readable', () => {
-  const listed = mediaKeysInSource(src);
-  assert.deepEqual(listed, [...listed].sort());
+  test(`${rel}: the list is sorted, so its diff stays readable`, () => {
+    const listed = listing(rel);
+    assert.deepEqual(listed, [...listed].sort());
+  });
+}
+
+test('the browser copy and the server copy agree', () => {
+  // They are separate only because app.jsx is transformed, not bundled, and cannot import.
+  // If they ever disagree, one surface reads the database for an image the other does not.
+  const [first, ...rest] = LIST_FILES.map(listing);
+  rest.forEach((other) => assert.deepEqual(other, first));
 });
 
 test('both media readers consult the CDN before the database', () => {
