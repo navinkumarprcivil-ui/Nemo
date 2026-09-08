@@ -113,6 +113,16 @@ It never was. **A Worker that returns a Response it built itself does not popula
 cache** — only responses that came back through `fetch` do — so the header advised a cache that
 was never consulted, and every crawler hit paid for all 20 MB. Sixty hits a day is 1.2 GB.
 
+**The 30-day graph dates it exactly.** Downloads sat near zero until 19–20 August and ramp from
+20 August onward, stepping up again through the 27th–31st as Google indexed the new pages more
+heavily. `hydrateCatalogueMedia` — the line that fetched the whole node — was added on
+**21 August**, in commit `321c423`. The inflection point in the chart and the commit date are the
+same day. That is the confirmation; everything before it was inference.
+
+It also corrects the first diagnosis. The browser was reading images from the database long
+before 21 August, and the bill then was 100–300 MB a day. So `hydrateMedia` was real but
+secondary; the shop pages were the order of magnitude.
+
 Two lessons worth keeping:
 
 - A `Cache-Control` header on a Worker-rendered response is a claim, not a mechanism. If you
