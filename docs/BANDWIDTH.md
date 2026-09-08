@@ -101,6 +101,61 @@ every fifteen minutes — ninety-six times a day — to check five expiry fields
 customer's photo each time. It now lists keys with `dbGetShallow()` and reads only the scalars.
 Service-account bytes are billed exactly like a customer's.
 
+## The second cause: the shop pages read the whole media node
+
+Moving the images to the CDN fixed the browser. It did not fix the server, and the daily figure
+stayed high for a day longer than it should have.
+
+`/p` and `/p/<slug>` — the search-indexable pages — called `fetch(DB/media.json)` on every
+request, the entire 20 MB node, to pick out a handful of image keys. The route set
+`Cache-Control: public, s-maxage=600`, so it read as a page cached at the edge for ten minutes.
+It never was. **A Worker that returns a Response it built itself does not populate Cloudflare's
+cache** — only responses that came back through `fetch` do — so the header advised a cache that
+was never consulted, and every crawler hit paid for all 20 MB. Sixty hits a day is 1.2 GB.
+
+Two lessons worth keeping:
+
+- A `Cache-Control` header on a Worker-rendered response is a claim, not a mechanism. If you
+  want a Worker response cached, use the Cache API explicitly, or check the `cf-cache-status`
+  header before believing it.
+- Fixing the client is not fixing the system. The same images were being read twice over, by two
+  different code paths, and only one of them was in `app.jsx`.
+
+Those pages now build URLs instead of loading bytes — the CDN copy where `assets/media/` has the
+file, otherwise `/share-image/<key>`, which reads one key and is genuinely edge-cached because it
+goes through `fetch`. Rendering a shop page costs the database nothing. It also repaired the
+share previews: `og:image` used to be a base64 data URL for anything still in the database, and no
+social crawler can fetch one of those.
+
+## Storage, which is a different number
+
+Downloads are the dangerous one. Storage is not close:
+
+| | used | allowance |
+|---|---|---|
+| Downloads | ~9.8 GB per cycle before the fixes | 10 GB |
+| Storage | 20.8 MB | 1 GB |
+
+Of that 20.8 MB, **`media` is 20.2 MB** — 97%. Everything else in the database together is about
+600 KB. So any storage work that is not about `media` is rounding error, and a new photo costs
+roughly 250 KB (a 1100px JPEG, base64, which adds a third). At that rate storage has room for
+thousands more pictures. It is not the constraint; downloads are.
+
+The 83 images that now have a file in `assets/media/` no longer need their database copy — every
+reader consults the CDN first. **Admin → Settings → Free Database Space** clears exactly those and
+nothing else, which takes the database from 20.8 MB to under 1 MB. It walks `CDN_MEDIA_KEYS`, so
+it cannot touch an image that has nowhere else to come from, and it reads nothing, so pressing it
+twice is free.
+
+Nodes that grow forever, all tiny today, none worth acting on yet:
+
+| node | grows by | note |
+|---|---|---|
+| `analytics/search/<term>` | one key per distinct search word | the only one a visitor can grow without limit; each key is a single number |
+| `analytics/daily/<date>`, `analytics/events/…` | one key per day | |
+| `paymentWebhookEvents/<id>` | one record per payment event, ~150 bytes | the dedupe ledger; never pruned |
+| `orders`, `tankMonthlyEntries`, `totmVotes/<month>` | with the business | real records — Admin already has an order cleanup |
+
 ## When something looks wrong
 
 Realtime Database → **Usage** shows downloads for the current cycle against the allowance. Check
